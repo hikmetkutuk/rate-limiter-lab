@@ -1,0 +1,14 @@
+#!/bin/sh
+# Formats staged files with Spotless and re-stages them before the commit is created.
+# Enable once per clone with: git config core.hooksPath .githooks
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR -- '*.java' '*.gradle.kts')
+[ -z "$staged" ] && exit 0
+
+./gradlew spotlessApply --quiet || {
+    echo "pre-commit: spotlessApply failed, commit aborted." >&2
+    exit 1
+}
+
+# Note: re-adding stages the whole file, including any unstaged hunks in it.
+echo "$staged" | xargs git add --
