@@ -45,6 +45,46 @@ class FixedWindowRateLimiterTest {
     }
 
     @Test
+    void stillDeniesOneMillisecondBeforeWindowEnds() {
+        exhaust(ALICE);
+        clock.advance(Duration.ofMillis(999));
+
+        assertFalse(limiter.tryAcquire(ALICE).allowed());
+    }
+
+    @Test
+    void windowRolloverResetsTheCount() {
+        exhaust(ALICE);
+        clock.advance(Duration.ofSeconds(1));
+
+        assertEquals(Decision.allowed(2), limiter.tryAcquire(ALICE));
+        assertEquals(Decision.allowed(1), limiter.tryAcquire(ALICE));
+        assertEquals(Decision.allowed(0), limiter.tryAcquire(ALICE));
+        assertFalse(limiter.tryAcquire(ALICE).allowed());
+    }
+
+    @Test
+    void retryAfterIsTimeUntilWindowEnds() {
+        exhaust(ALICE);
+
+        assertEquals(Duration.ofSeconds(1), limiter.tryAcquire(ALICE).retryAfter());
+
+        clock.advance(Duration.ofMillis(300));
+        assertEquals(Duration.ofMillis(700), limiter.tryAcquire(ALICE).retryAfter());
+
+        clock.advance(Duration.ofMillis(699));
+        assertEquals(Duration.ofMillis(1), limiter.tryAcquire(ALICE).retryAfter());
+    }
+
+    @Test
+    void retryAfterIsAlignedToWindowNotFirstRequest() {
+        clock.advance(Duration.ofMillis(400));
+        exhaust(ALICE);
+
+        assertEquals(Duration.ofMillis(600), limiter.tryAcquire(ALICE).retryAfter());
+    }
+
+    @Test
     void keysAreLimitedIndependently() {
         exhaust(ALICE);
 
