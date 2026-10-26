@@ -7,6 +7,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
 
 class FixedWindowRateLimiterTest {
@@ -89,6 +99,39 @@ class FixedWindowRateLimiterTest {
         exhaust(ALICE);
 
         assertTrue(limiter.tryAcquire(BOB).allowed());
+    }
+
+    @Test
+    void concurrentRequestsOnOneKeyNeverExceedLimit() throws Exception {
+        int limit = 100;
+        int threads = 10_000;
+        RateLimiter shared = new FixedWindowRateLimiter(limit, Duration.ofSeconds(1), clock);
+        CountDownLatch startGate = new CountDownLatch(1);
+        Set<Long> remainingSeen = ConcurrentHashMap.newKeySet();
+
+        List<Future<Decision>> results = new ArrayList<>(threads);
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (int i = 0; i < threads; i++) {
+                results.add(executor.submit(() -> {
+                    startGate.await();
+                    return shared.tryAcquire(ALICE);
+                }));
+            }
+            startGate.countDown();
+        }
+
+        int allowed = 0;
+        for (Future<Decision> result : results) {
+            Decision decision = result.get();
+            if (decision.allowed()) {
+                allowed++;
+                assertTrue(remainingSeen.add(decision.remaining()), "duplicate remaining " + decision.remaining());
+            }
+        }
+
+        assertEquals(limit, allowed);
+        // Each permit was handed out exactly once: remaining values are exactly 0..limit-1.
+        assertEquals(LongStream.range(0, limit).boxed().collect(Collectors.toSet()), remainingSeen);
     }
 
     @Test

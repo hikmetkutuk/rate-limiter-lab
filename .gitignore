@@ -8,6 +8,7 @@ build/
 *.iml
 .vscode/
 out/
+bin/
 
 # OS
 .DS_Store
